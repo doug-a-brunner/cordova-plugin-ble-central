@@ -39,9 +39,12 @@ public class Peripheral extends BluetoothGattCallback {
     public final static UUID CLIENT_CHARACTERISTIC_CONFIGURATION_UUID = UUIDHelper.uuidFromString("2902");
     private static final String TAG = "Peripheral";
 
+    private static final int FAKE_PERIPHERAL_RSSI = 0x7FFFFFFF;
+
     private BluetoothDevice device;
     private byte[] advertisingData;
     private int advertisingRSSI;
+    private boolean autoconnect = false;
     private boolean connected = false;
     private boolean connecting = false;
     private ConcurrentLinkedQueue<BLECommand> commandQueue = new ConcurrentLinkedQueue<BLECommand>();
@@ -52,8 +55,19 @@ public class Peripheral extends BluetoothGattCallback {
     private CallbackContext connectCallback;
     private CallbackContext readCallback;
     private CallbackContext writeCallback;
+    private Activity currentActivity;
 
     private Map<String, CallbackContext> notificationCallbacks = new HashMap<String, CallbackContext>();
+
+    public Peripheral(BluetoothDevice device) {
+
+        LOG.d(TAG, "Creating un-scanned peripheral entry for address: " + device.getAddress());
+
+        this.device = device;
+        this.advertisingRSSI = FAKE_PERIPHERAL_RSSI;
+        this.advertisingData = null;
+
+    }
 
     public Peripheral(BluetoothDevice device, int advertisingRSSI, byte[] scanRecord) {
 
@@ -63,16 +77,31 @@ public class Peripheral extends BluetoothGattCallback {
 
     }
 
-    public void connect(CallbackContext callbackContext, Activity activity) {
+    private void gattConnect() {
+
+        queueCleanup();
+        if (gatt != null) {
+            gatt.disconnect();
+            gatt.close();
+            gatt = null;
+        }
+
         BluetoothDevice device = getDevice();
         connecting = true;
-
-        connectCallback = callbackContext;
         if (Build.VERSION.SDK_INT < 23) {
-            gatt = device.connectGatt(activity, false, this);
+            gatt = device.connectGatt(currentActivity, autoconnect, this);
         } else {
-            gatt = device.connectGatt(activity, false, this, BluetoothDevice.TRANSPORT_LE);
+            gatt = device.connectGatt(currentActivity, autoconnect, this, BluetoothDevice.TRANSPORT_LE);
         }
+
+    }
+
+    public void connect(CallbackContext callbackContext, Activity activity, boolean auto) {
+        currentActivity = activity;
+        autoconnect = auto;
+        connectCallback = callbackContext;
+
+        gattConnect();
 
         PluginResult result = new PluginResult(PluginResult.Status.NO_RESULT);
         result.setKeepCallback(true);
@@ -83,12 +112,17 @@ public class Peripheral extends BluetoothGattCallback {
         connectCallback = null;
         connected = false;
         connecting = false;
+        queueCleanup();
 
         if (gatt != null) {
             gatt.disconnect();
             gatt.close();
             gatt = null;
         }
+    }
+
+    public boolean isUnscanned() {
+        return advertisingData == null;
     }
 
     public JSONObject asJSONObject()  {
@@ -98,9 +132,13 @@ public class Peripheral extends BluetoothGattCallback {
         try {
             json.put("name", device.getName());
             json.put("id", device.getAddress()); // mac address
-            json.put("advertising", byteArrayToJSON(advertisingData));
+            if (advertisingData != null) {
+                json.put("advertising", byteArrayToJSON(advertisingData));
+            }
             // TODO real RSSI if we have it, else
-            json.put("rssi", advertisingRSSI);
+            if (advertisingRSSI != FAKE_PERIPHERAL_RSSI) {
+                json.put("rssi", advertisingRSSI);
+            }
         } catch (JSONException e) { // this shouldn't happen
             e.printStackTrace();
         }
@@ -219,17 +257,22 @@ public class Peripheral extends BluetoothGattCallback {
         this.gatt = gatt;
 
         if (newState == BluetoothGatt.STATE_CONNECTED) {
-
             connected = true;
             connecting = false;
             gatt.discoverServices();
 
         } else {
-
+            connected = false;
             if (connectCallback != null) {
-                connectCallback.error(this.asJSONObject("Peripheral Disconnected"));
+                PluginResult result = new PluginResult(PluginResult.Status.ERROR, this.asJSONObject("Peripheral Disconnected"));
+                result.setKeepCallback(autoconnect);
+                connectCallback.sendPluginResult(result);
             }
-            disconnect();
+            if(autoconnect) {
+                gattConnect();
+            } else {
+                disconnect();
+            }
         }
 
     }
@@ -455,6 +498,12 @@ public class Peripheral extends BluetoothGattCallback {
         }
 
         BluetoothGattService service = gatt.getService(serviceUUID);
+
+        if (service == null) {
+            callbackContext.error("Service " + serviceUUID + " not found.");
+            return;
+        }
+
         BluetoothGattCharacteristic characteristic = findReadableCharacteristic(service, characteristicUUID);
 
         if (characteristic == null) {
@@ -532,6 +581,12 @@ public class Peripheral extends BluetoothGattCallback {
         }
 
         BluetoothGattService service = gatt.getService(serviceUUID);
+
+        if (service == null) {
+            callbackContext.error("Service " + serviceUUID + " not found.");
+            return;
+        }
+
         BluetoothGattCharacteristic characteristic = findWritableCharacteristic(service, characteristicUUID, writeType);
 
         if (characteristic == null) {
@@ -606,6 +661,14 @@ public class Peripheral extends BluetoothGattCallback {
     public void queueReadRSSI(CallbackContext callbackContext) {
         BLECommand command = new BLECommand(callbackContext, null, null, BLECommand.READ_RSSI);
         queueCommand(command);
+    }
+
+    private void queueCleanup() {
+        bleProcessing = false;
+        BLECommand command;
+        do {
+            command = commandQueue.poll();
+        } while (command != null);
     }
 
     // add a new command to the queue
