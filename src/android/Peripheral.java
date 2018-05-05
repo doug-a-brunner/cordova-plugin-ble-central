@@ -79,15 +79,17 @@ public class Peripheral extends BluetoothGattCallback {
 
     private void gattConnect() {
 
-        queueCleanup();
         if (gatt != null) {
             gatt.disconnect();
             gatt.close();
             gatt = null;
         }
+        connected = false;
+        connecting = true;
+        queueCleanup();
+        callbackCleanup();
 
         BluetoothDevice device = getDevice();
-        connecting = true;
         if (Build.VERSION.SDK_INT < 23) {
             gatt = device.connectGatt(currentActivity, autoconnect, this);
         } else {
@@ -109,16 +111,16 @@ public class Peripheral extends BluetoothGattCallback {
     }
 
     public void disconnect() {
-        connectCallback = null;
         connected = false;
         connecting = false;
-        queueCleanup();
 
         if (gatt != null) {
             gatt.disconnect();
             gatt.close();
             gatt = null;
         }
+        queueCleanup();
+        callbackCleanup();
     }
 
     public boolean isUnscanned() {
@@ -263,11 +265,6 @@ public class Peripheral extends BluetoothGattCallback {
 
         } else {
             connected = false;
-            if (connectCallback != null) {
-                PluginResult result = new PluginResult(PluginResult.Status.ERROR, this.asJSONObject("Peripheral Disconnected"));
-                result.setKeepCallback(autoconnect);
-                connectCallback.sendPluginResult(result);
-            }
             if(autoconnect) {
                 gattConnect();
             } else {
@@ -666,9 +663,39 @@ public class Peripheral extends BluetoothGattCallback {
     private void queueCleanup() {
         bleProcessing = false;
         BLECommand command;
-        do {
+        for (;;) {
             command = commandQueue.poll();
-        } while (command != null);
+            if (command != null) {
+                command.getCallbackContext().error("Peripheral Disconnected");
+            }
+            else {
+                break;
+            }
+        }
+    }
+
+    private void callbackCleanup() {
+        if (connectCallback != null && !connecting) {
+            if (autoconnect) {
+                PluginResult result = new PluginResult(PluginResult.Status.ERROR, this.asJSONObject("Peripheral Disconnected"));
+                result.setKeepCallback(true);
+                connectCallback.sendPluginResult(result);
+            }
+            else {
+                connectCallback.error(this.asJSONObject("Peripheral Disconnected"));
+                connectCallback = null;
+            }
+        }
+        if (readCallback != null) {
+            readCallback.error(this.asJSONObject("Peripheral Disconnected"));
+            readCallback = null;
+            commandCompleted();
+        }
+        if (writeCallback != null) {
+            writeCallback.error(this.asJSONObject("Peripheral Disconnected"));
+            writeCallback = null;
+            commandCompleted();
+        }
     }
 
     // add a new command to the queue
