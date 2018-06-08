@@ -37,8 +37,8 @@
 
     [super pluginInitialize];
 
-    peripherals = [NSMutableSet set];
-    manager = [[CBCentralManager alloc] initWithDelegate:self queue:nil];
+    peripherals = [NSMutableSet new];
+    manager = [[CBCentralManager alloc] initWithDelegate:self queue:nil options:@{CBCentralManagerOptionShowPowerAlertKey: @NO}];
 
     connectCallbacks = [NSMutableDictionary new];
     connectCallbackLatches = [NSMutableDictionary new];
@@ -88,16 +88,24 @@
     NSString *uuid = [command argumentAtIndex:0];
     CBPeripheral *peripheral = [self findPeripheralByUUID:uuid];
 
-    [connectCallbacks removeObjectForKey:uuid];
-    [self cleanupOperationCallbacks:peripheral withResult:[CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:@"Peripheral disconnected"]];
+    if (!peripheral) {
+        NSString *message = [NSString stringWithFormat:@"Peripheral %@ not found", uuid];
+        NSLog(@"%@", message);
+        CDVPluginResult *pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:message];
+        [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
 
-    if (peripheral && peripheral.state != CBPeripheralStateDisconnected) {
-        [manager cancelPeripheralConnection:peripheral];
+    } else {
+
+        [connectCallbacks removeObjectForKey:uuid];
+        [self cleanupOperationCallbacks:peripheral withResult:[CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:@"Peripheral disconnected"]];
+
+        if (peripheral && peripheral.state != CBPeripheralStateDisconnected) {
+            [manager cancelPeripheralConnection:peripheral];
+        }
+
+        CDVPluginResult *pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK];
+        [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
     }
-
-    // always return OK
-    CDVPluginResult *pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK];
-    [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
 }
 
 // read: function (device_id, service_uuid, characteristic_uuid, success, failure) {
@@ -352,6 +360,25 @@
     }
 
     pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK];
+    [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
+}
+
+- (void)showBluetoothSettings:(CDVInvokedUrlCommand *)command {
+    CDVPluginResult *pluginResult = nil;
+    NSString* urlString;
+
+	if (SYSTEM_VERSION_LESS_THAN(@"9.0")) {
+        urlString = @"App-Prefs:root=General&path=Bluetooth";
+	} else {
+        urlString = @"App-Prefs:root=Bluetooth";
+    }
+
+	if ([[UIApplication sharedApplication] openURL:[NSURL URLWithString:urlString]]) {
+        pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK];
+	} else {
+        pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR];
+	}
+
     [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
 }
 

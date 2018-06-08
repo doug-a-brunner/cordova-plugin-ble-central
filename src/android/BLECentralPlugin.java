@@ -54,6 +54,9 @@ public class BLECentralPlugin extends CordovaPlugin implements BluetoothAdapter.
     private static final String AUTOCONNECT = "autoConnect";
     private static final String DISCONNECT = "disconnect";
 
+    private static final String REQUEST_MTU = "requestMtu";
+    private static final String REFRESH_DEVICE_CACHE = "refreshDeviceCache";
+
     private static final String READ = "read";
     private static final String WRITE = "write";
     private static final String WRITE_WITHOUT_RESPONSE = "writeWithoutResponse";
@@ -90,7 +93,6 @@ public class BLECentralPlugin extends CordovaPlugin implements BluetoothAdapter.
     // Android 23 requires new permissions for BluetoothLeScanner.startScan()
     private static final String ACCESS_COARSE_LOCATION = Manifest.permission.ACCESS_COARSE_LOCATION;
     private static final int REQUEST_ACCESS_COARSE_LOCATION = 2;
-    private static final int PERMISSION_DENIED_ERROR = 20;
     private CallbackContext permissionCallback;
     private UUID[] serviceUUIDs;
     private int scanSeconds;
@@ -170,6 +172,17 @@ public class BLECentralPlugin extends CordovaPlugin implements BluetoothAdapter.
 
             String macAddress = args.getString(0);
             disconnect(callbackContext, macAddress);
+
+        } else if (action.equals(REQUEST_MTU)) {
+
+            String macAddress = args.getString(0);
+            int mtuValue = args.getInt(1);
+            requestMtu(callbackContext, macAddress, mtuValue);
+
+        } else if (action.equals(REFRESH_DEVICE_CACHE)) {
+
+            String macAddress = args.getString(0);
+            refreshDeviceCache(callbackContext, macAddress);
 
         } else if (action.equals(READ)) {
 
@@ -382,9 +395,40 @@ public class BLECentralPlugin extends CordovaPlugin implements BluetoothAdapter.
         Peripheral peripheral = peripherals.get(macAddress);
         if (peripheral != null) {
             peripheral.disconnect();
+            callbackContext.success();
+        } else {
+            String message = "Peripheral " + macAddress + " not found.";
+            LOG.w(TAG, message);
+            callbackContext.error(message);
+        }
+
+    }
+
+    private void requestMtu(CallbackContext callbackContext, String macAddress, int mtuValue) {
+
+        Peripheral peripheral = peripherals.get(macAddress);
+        if (peripheral != null) {
+            peripheral.requestMtu(mtuValue);
         }
         callbackContext.success();
+    }
 
+    private void refreshDeviceCache(CallbackContext callbackContext, String macAddress) {
+
+        Peripheral peripheral = peripherals.get(macAddress);
+
+        if (peripheral != null) {
+            boolean success = peripheral.refreshDeviceCache();
+            if (success) {
+                callbackContext.success();
+            } else {
+                callbackContext.error("Refresh failed");
+            }
+        } else {
+            String message = "Peripheral " + macAddress + " not found.";
+            LOG.w(TAG, message);
+            callbackContext.error(message);
+        }
     }
 
     private void read(CallbackContext callbackContext, String macAddress, UUID serviceUUID, UUID characteristicUUID) {
@@ -485,6 +529,11 @@ public class BLECentralPlugin extends CordovaPlugin implements BluetoothAdapter.
 
     private void findLowEnergyDevices(CallbackContext callbackContext, UUID[] serviceUUIDs, int scanSeconds) {
 
+        if (!locationServicesEnabled()) {
+            callbackContext.error("Location Services are disabled");
+            return;
+        }
+
         if(!PermissionHelper.hasPermission(this, ACCESS_COARSE_LOCATION)) {
             // save info so we can call this method again after permissions are granted
             permissionCallback = callbackContext;
@@ -536,6 +585,16 @@ public class BLECentralPlugin extends CordovaPlugin implements BluetoothAdapter.
         PluginResult result = new PluginResult(PluginResult.Status.NO_RESULT);
         result.setKeepCallback(true);
         callbackContext.sendPluginResult(result);
+    }
+
+    private boolean locationServicesEnabled() {
+        int locationMode = 0;
+        try {
+            locationMode = Settings.Secure.getInt(cordova.getActivity().getContentResolver(), Settings.Secure.LOCATION_MODE);
+        } catch (Settings.SettingNotFoundException e) {
+            LOG.e(TAG, "Location Mode Setting Not Found", e);
+        }
+        return (locationMode > 0);
     }
 
     private void listKnownDevices(CallbackContext callbackContext) {
@@ -604,13 +663,11 @@ public class BLECentralPlugin extends CordovaPlugin implements BluetoothAdapter.
     }
 
     /* @Override */
-    public void onRequestPermissionResult(int requestCode, String[] permissions,
-                                          int[] grantResults) /* throws JSONException */ {
+    public void onRequestPermissionResult(int requestCode, String[] permissions, int[] grantResults) {
         for(int result:grantResults) {
-            if(result == PackageManager.PERMISSION_DENIED)
-            {
+            if(result == PackageManager.PERMISSION_DENIED) {
                 LOG.d(TAG, "User *rejected* Coarse Location Access");
-                this.permissionCallback.sendPluginResult(new PluginResult(PluginResult.Status.ERROR, PERMISSION_DENIED_ERROR));
+                this.permissionCallback.error("Location permission not granted.");
                 return;
             }
         }
