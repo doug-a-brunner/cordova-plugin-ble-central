@@ -113,7 +113,7 @@ public class Peripheral extends BluetoothGattCallback {
     }
 
     // the app requested the central disconnect from the peripheral
-    // disconnect the gatt, do not call connectCallback.error
+    // disconnect the gatt, call connectCallback.error to maintain interface contract
     public void disconnect() {
         connected = false;
         connecting = false;
@@ -123,6 +123,9 @@ public class Peripheral extends BluetoothGattCallback {
             gatt.close();
             gatt = null;
         }
+
+        sendDisconnectMessage(false);
+
         queueCleanup();
         callbackCleanup();
     }
@@ -140,16 +143,16 @@ public class Peripheral extends BluetoothGattCallback {
             gatt = null;
         }
 
-        sendDisconnectMessage();
+        sendDisconnectMessage(true);
 
         queueCleanup();
         callbackCleanup();
     }
 
     // notify the phone that the peripheral disconnected
-    private void sendDisconnectMessage() {
+    private void sendDisconnectMessage(boolean byPeripheral) {
         if (connectCallback != null) {
-            JSONObject message = this.asJSONObject("Peripheral Disconnected");
+            JSONObject message = this.asJSONObject(byPeripheral ? "Peripheral Disconnected" : "Disconnect Complete");
             if (autoconnect) {
                 PluginResult result = new PluginResult(PluginResult.Status.ERROR, message);
                 result.setKeepCallback(true);
