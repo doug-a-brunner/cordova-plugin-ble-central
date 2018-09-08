@@ -41,13 +41,16 @@ import org.json.JSONException;
 
 import java.util.*;
 
+import static android.bluetooth.BluetoothDevice.DEVICE_TYPE_DUAL;
+import static android.bluetooth.BluetoothDevice.DEVICE_TYPE_LE;
+
 public class BLECentralPlugin extends CordovaPlugin implements BluetoothAdapter.LeScanCallback {
     // actions
     private static final String SCAN = "scan";
     private static final String START_SCAN = "startScan";
     private static final String STOP_SCAN = "stopScan";
     private static final String START_SCAN_WITH_OPTIONS = "startScanWithOptions";
-
+    private static final String BONDED_DEVICES = "bondedDevices";
     private static final String LIST = "list";
 
     private static final String CONNECT = "connect";
@@ -182,7 +185,9 @@ public class BLECentralPlugin extends CordovaPlugin implements BluetoothAdapter.
         } else if (action.equals(REFRESH_DEVICE_CACHE)) {
 
             String macAddress = args.getString(0);
-            refreshDeviceCache(callbackContext, macAddress);
+            long timeoutMillis = args.getLong(1);
+
+            refreshDeviceCache(callbackContext, macAddress, timeoutMillis);
 
         } else if (action.equals(READ)) {
 
@@ -288,6 +293,10 @@ public class BLECentralPlugin extends CordovaPlugin implements BluetoothAdapter.
             this.reportDuplicates = options.optBoolean("reportDuplicates", false);
             findLowEnergyDevices(callbackContext, serviceUUIDs, -1);
 
+        } else if (action.equals(BONDED_DEVICES)) {
+
+            getBondedDevices(callbackContext);
+
         } else {
 
             validAction = false;
@@ -295,6 +304,24 @@ public class BLECentralPlugin extends CordovaPlugin implements BluetoothAdapter.
         }
 
         return validAction;
+    }
+
+    private void getBondedDevices(CallbackContext callbackContext) {
+        JSONArray bonded = new JSONArray();
+        Set<BluetoothDevice> bondedDevices =  bluetoothAdapter.getBondedDevices();
+
+        for (BluetoothDevice device : bondedDevices) {
+            device.getBondState();
+            int type = device.getType();
+
+            // just low energy devices (filters out classic and unknown devices)
+            if (type == DEVICE_TYPE_LE || type == DEVICE_TYPE_DUAL) {
+                Peripheral p = new Peripheral(device);
+                bonded.put(p.asJSONObject());
+            }
+        }
+
+        callbackContext.success(bonded);
     }
 
     private UUID[] parseServiceUUIDList(JSONArray jsonArray) throws JSONException {
@@ -413,17 +440,12 @@ public class BLECentralPlugin extends CordovaPlugin implements BluetoothAdapter.
         callbackContext.success();
     }
 
-    private void refreshDeviceCache(CallbackContext callbackContext, String macAddress) {
+    private void refreshDeviceCache(CallbackContext callbackContext, String macAddress, long timeoutMillis) {
 
         Peripheral peripheral = peripherals.get(macAddress);
 
         if (peripheral != null) {
-            boolean success = peripheral.refreshDeviceCache();
-            if (success) {
-                callbackContext.success();
-            } else {
-                callbackContext.error("Refresh failed");
-            }
+            peripheral.refreshDeviceCache(callbackContext, timeoutMillis);
         } else {
             String message = "Peripheral " + macAddress + " not found.";
             LOG.w(TAG, message);

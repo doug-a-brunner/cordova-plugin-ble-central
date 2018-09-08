@@ -24,9 +24,6 @@
 #import "BLECommandContext.h"
 #import "CBPeripheral+Extensions.h"
 
-// https://github.com/guyromb/cordova-open-native-settings/blob/master/src/ios/NativeSettings.h
-#define SYSTEM_VERSION_LESS_THAN(v) ([[[UIDevice currentDevice] systemVersion] compare:v options:NSNumericSearch] == NSOrderedAscending)
-
 @interface BLECentralPlugin : CDVPlugin <CBCentralManagerDelegate, CBPeripheralDelegate> {
     NSString* discoverPeripheralCallbackId;
     NSString* stateCallbackId;
@@ -47,8 +44,11 @@
 - (void)startScan:(CDVInvokedUrlCommand *)command;
 - (void)startScanWithOptions:(CDVInvokedUrlCommand *)command;
 - (void)stopScan:(CDVInvokedUrlCommand *)command;
+- (void)connectedPeripheralsWithServices:(CDVInvokedUrlCommand*)command;
+- (void)peripheralsWithIdentifiers:(CDVInvokedUrlCommand*)command;
 
 - (void)connect:(CDVInvokedUrlCommand *)command;
+- (void)autoConnect:(CDVInvokedUrlCommand *)command;
 - (void)disconnect:(CDVInvokedUrlCommand *)command;
 
 - (void)read:(CDVInvokedUrlCommand *)command;
@@ -63,8 +63,6 @@
 
 - (void)startStateNotifications:(CDVInvokedUrlCommand *)command;
 - (void)stopStateNotifications:(CDVInvokedUrlCommand *)command;
-
-- (void)showBluetoothSettings:(CDVInvokedUrlCommand *)command;
 
 - (void)onReset;
 

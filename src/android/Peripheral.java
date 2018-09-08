@@ -18,6 +18,7 @@ import android.app.Activity;
 
 import android.bluetooth.*;
 import android.os.Build;
+import android.os.Handler;
 import android.util.Base64;
 import org.apache.cordova.CallbackContext;
 import org.apache.cordova.LOG;
@@ -55,6 +56,7 @@ public class Peripheral extends BluetoothGattCallback {
     BluetoothGatt gatt;
 
     private CallbackContext connectCallback;
+    private CallbackContext refreshCallback;
     private CallbackContext readCallback;
     private CallbackContext writeCallback;
     private Activity currentActivity;
@@ -173,7 +175,9 @@ public class Peripheral extends BluetoothGattCallback {
     public void requestMtu(int mtuValue) {
         if (gatt != null) {
             LOG.d(TAG, "requestMtu mtu=" + mtuValue);
-            gatt.requestMtu(mtuValue);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                gatt.requestMtu(mtuValue);
+            }
         }
     }
 
@@ -184,16 +188,27 @@ public class Peripheral extends BluetoothGattCallback {
      *
      * Since this uses an undocumented API it's not guaranteed to work.
      *
-     * @return success
      */
-    public boolean refreshDeviceCache() {
+    public void refreshDeviceCache(CallbackContext callback, final long timeoutMillis) {
         LOG.d(TAG, "refreshDeviceCache");
+
         boolean success = false;
         if (gatt != null) {
             try {
                 final Method refresh = gatt.getClass().getMethod("refresh");
                 if (refresh != null) {
                     success = (Boolean)refresh.invoke(gatt);
+                    if (success) {
+                        this.refreshCallback = callback;
+                        Handler handler = new Handler();
+                        handler.postDelayed(new Runnable() {
+                            @Override
+                            public void run() {
+                                LOG.d(TAG, "Waiting " + timeoutMillis + " milliseconds before discovering services");
+                                gatt.discoverServices();
+                            }
+                        }, timeoutMillis);
+                    }
                 } else {
                     LOG.w(TAG, "Refresh method not found on gatt");
                 }
@@ -201,7 +216,10 @@ public class Peripheral extends BluetoothGattCallback {
                 LOG.e(TAG, "refreshDeviceCache Failed", e);
             }
         }
-        return success;
+
+        if (!success) {
+            callback.error("Service refresh failed");
+        }
     }
 
     public boolean isUnscanned() {
@@ -323,14 +341,27 @@ public class Peripheral extends BluetoothGattCallback {
     public void onServicesDiscovered(BluetoothGatt gatt, int status) {
         super.onServicesDiscovered(gatt, status);
 
+        // refreshCallback is a kludge for refreshing services, if it exists, it temporarily
+        // overrides the connect callback. Unfortunately this edge case make the code confusing.
+
         if (status == BluetoothGatt.GATT_SUCCESS) {
             PluginResult result = new PluginResult(PluginResult.Status.OK, this.asJSONObject(gatt));
             result.setKeepCallback(true);
-            connectCallback.sendPluginResult(result);
+            if (refreshCallback != null) {
+                refreshCallback.sendPluginResult(result);
+                refreshCallback = null;
+            } else {
+                connectCallback.sendPluginResult(result);
+            }
         } else {
             LOG.e(TAG, "Service discovery failed. status = " + status);
-            connectCallback.error(this.asJSONObject("Service discovery failed"));
-            disconnect();
+            if (refreshCallback != null) {
+                refreshCallback.error(this.asJSONObject("Service discovery failed"));
+                refreshCallback = null;
+            } else {
+                connectCallback.error(this.asJSONObject("Service discovery failed"));
+                disconnect();
+            }
         }
     }
 
