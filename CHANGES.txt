@@ -1,3 +1,8 @@
+= 1.2.3 =
+Add NSBluetoothAlwaysUsageDescription #700
+Add ble.isLocationEnabled (Android)
+Call stopNotificationCallback at the right time #476 and #482 Thanks @ddugue
+
 = 1.2.2 =
 Remove lambda from Peripheral.java to maintain 1.6 source compatibility #602
 Remove showBluetoothSettings for iOS #603
