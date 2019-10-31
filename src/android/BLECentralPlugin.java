@@ -57,6 +57,8 @@ public class BLECentralPlugin extends CordovaPlugin implements BluetoothAdapter.
     private static final String AUTOCONNECT = "autoConnect";
     private static final String DISCONNECT = "disconnect";
 
+    private static final String QUEUE_CLEANUP = "queueCleanup";
+
     private static final String REQUEST_MTU = "requestMtu";
     private static final String REFRESH_DEVICE_CACHE = "refreshDeviceCache";
 
@@ -121,7 +123,7 @@ public class BLECentralPlugin extends CordovaPlugin implements BluetoothAdapter.
 
     @Override
     public boolean execute(String action, CordovaArgs args, CallbackContext callbackContext) throws JSONException {
-        LOG.d(TAG, "action = " + action);
+        LOG.d(TAG, "action = %s", action);
 
         if (bluetoothAdapter == null) {
             Activity activity = cordova.getActivity();
@@ -177,7 +179,13 @@ public class BLECentralPlugin extends CordovaPlugin implements BluetoothAdapter.
             String macAddress = args.getString(0);
             disconnect(callbackContext, macAddress);
 
-        } else if (action.equals(REQUEST_MTU)) {
+        } else if (action.equals(QUEUE_CLEANUP)) {
+
+        String macAddress = args.getString(0);
+        queueCleanup(callbackContext, macAddress);
+
+        }
+        else if (action.equals(REQUEST_MTU)) {
 
             String macAddress = args.getString(0);
             int mtuValue = args.getInt(1);
@@ -440,6 +448,14 @@ public class BLECentralPlugin extends CordovaPlugin implements BluetoothAdapter.
 
     }
 
+    private void queueCleanup(CallbackContext callbackContext, String macAddress) {
+        Peripheral peripheral = peripherals.get(macAddress);
+        if (peripheral != null) {
+            peripheral.queueCleanup();
+        }
+        callbackContext.success();
+    }    
+
     private void requestMtu(CallbackContext callbackContext, String macAddress, int mtuValue) {
 
         Peripheral peripheral = peripherals.get(macAddress);
@@ -662,11 +678,13 @@ public class BLECentralPlugin extends CordovaPlugin implements BluetoothAdapter.
 
         } else {
             Peripheral peripheral = peripherals.get(address);
-            peripheral.update(rssi, scanRecord);
-            if (reportDuplicates && discoverCallback != null) {
-                PluginResult result = new PluginResult(PluginResult.Status.OK, peripheral.asJSONObject());
-                result.setKeepCallback(true);
-                discoverCallback.sendPluginResult(result);
+            if (peripheral != null) {
+                peripheral.update(rssi, scanRecord);
+                if (reportDuplicates && discoverCallback != null) {
+                    PluginResult result = new PluginResult(PluginResult.Status.OK, peripheral.asJSONObject());
+                    result.setKeepCallback(true);
+                    discoverCallback.sendPluginResult(result);
+                }
             }
         }
     }
