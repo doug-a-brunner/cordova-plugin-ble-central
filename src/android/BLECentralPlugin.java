@@ -719,8 +719,7 @@ public class BLECentralPlugin extends CordovaPlugin {
                 this.scanSeconds = scanSeconds;
 
                 String[] permissions = {
-                        Manifest.permission.ACCESS_FINE_LOCATION,
-                        "android.permission.ACCESS_BACKGROUND_LOCATION"     // (API 29) Manifest.permission.ACCESS_BACKGROUND_LOCATION
+                        Manifest.permission.ACCESS_FINE_LOCATION
                 };
 
                 PermissionHelper.requestPermissions(this, REQUEST_ACCESS_LOCATION, permissions);
@@ -840,7 +839,6 @@ public class BLECentralPlugin extends CordovaPlugin {
     public void onRequestPermissionResult(int requestCode, String[] permissions, int[] grantResults) {
         // Android 10 (API 29) and higher
         // Users MUST accept ACCESS_FINE_LOCATION
-        // Users may accept or reject ACCESS_BACKGROUND_LOCATION
         // Android 9 (API 28) and lower
         // Users MUST accept ACCESS_COARSE_LOCATION
         for (int i = 0; i < permissions.length; i++) {
